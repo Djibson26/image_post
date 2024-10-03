@@ -203,7 +203,7 @@ export default function LandingPage() {
                         </button>
                     </div>
                     <div style={heroImageStyles}>
-                        <img src="/placeholder.svg" alt="ImagePost App Interface" style={{
+                        <img src="/placeholder.png" alt="ImagePost App Interface" style={{
                             maxWidth: '100%',
                             height: 'auto',
                             borderRadius: '8px',
