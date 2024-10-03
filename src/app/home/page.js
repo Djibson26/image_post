@@ -1,474 +1,260 @@
 'use client';
 
-import React, { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation'; // Adjusted for Next.js 13+ to use next/navigation
+import { auth } from '../lib/firebaseConfig'; // Adjust the path as necessary
+import { GoogleAuthProvider, signInWithPopup, onAuthStateChanged, signOut } from 'firebase/auth';
 
-export default function ImageGenerator() {
-  const [formState, setFormState] = useState({
-    text: 'Enter your text here',
-    backgroundColor: '#1E1E1E',
-    fontColor: '#FFFFFF',
-    fontSize: 24,
-    fontFamily: 'Arial',
-    textX: 50,
-    textY: 50,
-    lineHeight: 1.2,
-    maxWidth: 90,
-    textAlign: 'center',
-    textShadow: '2px 2px 4px rgba(0,0,0,0.5)',
-    outlineColor: '#000000',
-    outlineWidth: 2,
-    gradientStart: '#FF0000',
-    gradientEnd: '#0000FF',
-  });
-  const [overlayImages, setOverlayImages] = useState([]);
-  const [imageUrl, setImageUrl] = useState(null);
-  const [isGenerating, setIsGenerating] = useState(false);
-  const canvasRef = useRef(null);
+export default function LandingPage() {
+    const [isMobile, setIsMobile] = useState(false);
+    const [user, setUser] = useState(null);
+    const router = useRouter();
 
-  const handleInputChange = (key, value) => {
-    setFormState((prev) => ({ ...prev, [key]: value }));
-  };
+    // Detect if the window is mobile-sized
+    useEffect(() => {
+        const handleResize = () => {
+            setIsMobile(window.innerWidth < 768);
+        };
+        handleResize();
+        window.addEventListener('resize', handleResize);
+        return () => window.removeEventListener('resize', handleResize);
+    }, []);
 
-  const handleImageUpload = useCallback((event) => {
-    const file = event.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setOverlayImages((prev) => [...prev, {
-          src: reader.result,
-          x: 0,
-          y: 0,
-          width: 100,
-          height: 100,
-          shape: 'rectangle'
-        }]);
-      };
-      reader.readAsDataURL(file);
-    }
-  }, []);
+    // Monitor auth state and set the user when signed in
+    useEffect(() => {
+        const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+            if (currentUser) {
+                setUser(currentUser);
+            } else {
+                setUser(null);
+            }
+        });
+        return () => unsubscribe();
+    }, []);
 
-  const updateOverlayImage = (index, key, value) => {
-    setOverlayImages((prev) => prev.map((img, i) => 
-      i === index ? { ...img, [key]: value } : img
-    ));
-  };
-
-  const deleteOverlayImage = (index) => {
-    setOverlayImages((prev) => prev.filter((_, i) => i !== index));
-  };
-
-  const deleteAllOverlayImages = () => {
-    setOverlayImages([]);
-  };
-
-  const generateImage = async () => {
-    setIsGenerating(true);
-    try {
-      const canvas = canvasRef.current;
-      const imageDataUrl = canvas.toDataURL('image/png');
-      setImageUrl(imageDataUrl);
-    } catch (error) {
-      console.error('Image generation failed:', error);
-      alert('Failed to generate image. Please try again.');
-    } finally {
-      setIsGenerating(false);
-    }
-  };
-
-  const downloadImage = useCallback(() => {
-    if (!imageUrl) return;
-    const link = document.createElement('a');
-    link.href = imageUrl;
-    link.download = 'generated-image.png';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  }, [imageUrl]);
-
-  const drawTextWithEffects = (ctx, text, x, y) => {
-    const canvas = canvasRef.current;
-    const lines = text.split('\n');
-    const lineHeight = formState.fontSize * formState.lineHeight;
-    
-    ctx.textAlign = formState.textAlign;
-    ctx.font = `${formState.fontSize}px ${formState.fontFamily}`;
-    
-    const gradient = ctx.createLinearGradient(0, y, 0, y + lineHeight * lines.length);
-    gradient.addColorStop(0, formState.gradientStart);
-    gradient.addColorStop(1, formState.gradientEnd);
-
-    lines.forEach((line, index) => {
-      const yPos = y + index * lineHeight;
-      const xPos = formState.textAlign === 'center' ? canvas.width / 2 :
-                   formState.textAlign === 'right' ? canvas.width - x : x;
-
-      // Draw outline
-      ctx.strokeStyle = formState.outlineColor;
-      ctx.lineWidth = formState.outlineWidth;
-      ctx.strokeText(line, xPos, yPos);
-
-      // Draw text with gradient
-      ctx.fillStyle = gradient;
-      ctx.fillText(line, xPos, yPos);
-
-      // Apply shadow
-      ctx.shadowColor = 'rgba(0,0,0,0.5)';
-      ctx.shadowBlur = 4;
-      ctx.shadowOffsetX = 2;
-      ctx.shadowOffsetY = 2;
-      ctx.fillText(line, xPos, yPos);
-
-      // Reset shadow
-      ctx.shadowColor = 'transparent';
-    });
-  };
-
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    const ctx = canvas.getContext('2d');
-    const canvasWidth = canvas.width;
-    const canvasHeight = canvas.height;
-
-    // Clear canvas
-    ctx.clearRect(0, 0, canvasWidth, canvasHeight);
-
-    // Draw background
-    ctx.fillStyle = formState.backgroundColor;
-    ctx.fillRect(0, 0, canvasWidth, canvasHeight);
-
-    // Draw overlay images
-    overlayImages.forEach((img) => {
-      const image = new Image();
-      image.src = img.src;
-      image.onload = () => {
-        if (img.shape === 'circle') {
-          ctx.save();
-          ctx.beginPath();
-          ctx.arc(img.x + img.width / 2, img.y + img.height / 2, img.width / 2, 0, Math.PI * 2);
-          ctx.closePath();
-          ctx.clip();
+    // Handle Google sign-in or sign-out
+    const handleGoogleSignIn = async () => {
+        if (user) {
+            // If the user is already signed in, handle sign out
+            try {
+                await signOut(auth);
+                console.log("User signed out");
+                setUser(null); // Reset the user state
+            } catch (error) {
+                console.error("Error during sign out:", error.message);
+            }
+        } else {
+            // If the user is not signed in, handle sign in
+            const provider = new GoogleAuthProvider();
+            try {
+                const result = await signInWithPopup(auth, provider);
+                console.log("User signed in:", result.user);
+                setUser(result.user); // Set user after sign-in
+            } catch (error) {
+                console.error("Error during Google sign-in:", error.message);
+            }
         }
-        ctx.drawImage(image, img.x, img.y, img.width, img.height);
-        if (img.shape === 'circle') {
-          ctx.restore();
+    };
+
+    // Redirect to home page if the user is signed in
+    const handleGetStarted = () => {
+        if (user) {
+            router.push('/home'); // Redirect to the home page
+        } else {
+            alert('Please sign in to get started.');
         }
-      };
-    });
+    };
 
-    // Draw text
-    const xPos = (formState.textX / 100) * canvasWidth;
-    const yPos = (formState.textY / 100) * canvasHeight;
-    drawTextWithEffects(ctx, formState.text, xPos, yPos);
+    const shinyBronze = '#D2A76A';
+    const shinyBronzeHover = '#E0B77D';
 
-  }, [formState, overlayImages]);
+    const baseStyles = {
+        fontFamily: 'Arial, sans-serif',
+        color: '#e0e0e0',
+        lineHeight: '1.6',
+        backgroundColor: '#121212',
+        minHeight: '100vh',
+    };
 
-  return (
-    <div className="image-generator">
-      <h1>Image Generator</h1>
-      <div className="content-container">
-        <div className="image-container">
-          <canvas ref={canvasRef} width="500" height="300" className="preview-canvas" />
-          {imageUrl && (
-            <img src={imageUrl} alt="Generated" className="output-image" />
-          )}
-          <div className="output-actions">
-            <button onClick={generateImage} disabled={isGenerating} className={`generate-button ${isGenerating ? 'disabled' : ''}`}>
-              {isGenerating ? 'Generating...' : 'Generate Image'}
-            </button>
-            <button onClick={downloadImage} className="action-button download-button">
-              Download Image
-            </button>
-          </div>
+    const headerStyles = {
+        background: '#1e1e1e',
+        color: '#e0e0e0',
+        padding: '1rem 0',
+        boxShadow: '0 2px 4px rgba(0,0,0,0.3)',
+    };
+
+    const headerContentStyles = {
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        maxWidth: '1200px',
+        margin: '0 auto',
+        padding: '0 1rem',
+    };
+
+    const mainStyles = {
+        padding: '1rem',
+        maxWidth: '1200px',
+        margin: '0 auto',
+    };
+
+    const heroSectionStyles = {
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        marginBottom: '2rem',
+        flexWrap: 'wrap',
+    };
+
+    const heroContentStyles = {
+        flex: '1',
+        minWidth: isMobile ? '100%' : '300px',
+        marginRight: isMobile ? '0' : '2rem',
+        marginBottom: isMobile ? '1rem' : '0',
+    };
+
+    const heroImageStyles = {
+        flex: '1',
+        minWidth: isMobile ? '100%' : '300px',
+    };
+
+    const featureSectionStyles = {
+        marginBottom: '2rem',
+    };
+
+    const featureGridStyles = {
+        display: 'flex',
+        justifyContent: 'space-around',
+        flexWrap: 'wrap',
+    };
+
+    const featureItemStyles = {
+        flex: '1',
+        minWidth: isMobile ? '100%' : '200px',
+        maxWidth: '250px',
+        margin: '1rem',
+        padding: '1.5rem',
+        backgroundColor: '#1e1e1e',
+        borderRadius: '8px',
+        boxShadow: '0 2px 4px rgba(255,255,255,0.1)',
+        textAlign: 'center',
+    };
+
+    const pricingSectionStyles = {
+        marginBottom: '2rem',
+    };
+
+    const pricingGridStyles = {
+        display: 'flex',
+        justifyContent: 'center',
+        flexWrap: 'wrap',
+        gap: '1rem',
+    };
+
+    const pricingItemStyles = {
+        width: isMobile ? '100%' : '300px',
+        padding: '1.5rem',
+        backgroundColor: '#1e1e1e',
+        borderRadius: '8px',
+        boxShadow: '0 2px 4px rgba(255,255,255,0.1)',
+        textAlign: 'center',
+    };
+
+    const buttonStyles = {
+        backgroundColor: shinyBronze,
+        color: '#121212',
+        border: 'none',
+        padding: isMobile ? '10px 20px' : '12px 24px',
+        fontSize: isMobile ? '0.9rem' : '1rem',
+        borderRadius: '4px',
+        cursor: 'pointer',
+        transition: 'background-color 0.3s',
+    };
+
+    return (
+        <div style={baseStyles}>
+            <header style={headerStyles}>
+                <div style={headerContentStyles}>
+                    <h1 style={{ fontSize: isMobile ? '1.2rem' : '1.5rem', margin: 0, color: shinyBronze }}>ImagePost</h1>
+                    <nav>
+                        <button onClick={handleGoogleSignIn} style={buttonStyles}>
+                            {user ? 'Sign out' : 'Sign in with Google'}
+                        </button>
+                    </nav>
+                </div>
+            </header>
+
+            <main style={mainStyles}>
+                <section style={heroSectionStyles}>
+                    <div style={heroContentStyles}>
+                        <h2 style={{ fontSize: isMobile ? '2rem' : '2.5rem', marginBottom: '1rem', color: shinyBronze }}>
+                            Transform Your Ideas into Visuals
+                        </h2>
+                        <p style={{ marginBottom: '1.5rem', fontSize: isMobile ? '1rem' : '1.1rem', color: '#e0e0e0' }}>
+                            ImagePost empowers you to create eye-catching images for social media, presentations, or any digital content. No design skills required!
+                        </p>
+                        <button
+                            style={buttonStyles}
+                            onMouseOver={(e) => e.target.style.backgroundColor = shinyBronzeHover}
+                            onMouseOut={(e) => e.target.style.backgroundColor = shinyBronze}
+                            onClick={handleGetStarted}
+                        >
+                            Get Started Now
+                        </button>
+                    </div>
+                    <div style={heroImageStyles}>
+                        <img src="/placeholder.png" alt="ImagePost App Interface" style={{
+                            maxWidth: '100%',
+                            height: 'auto',
+                            borderRadius: '8px',
+                            boxShadow: '0 4px 8px rgba(255,255,255,0.1)',
+                        }} />
+                    </div>
+                </section>
+
+                <section style={featureSectionStyles}>
+                    <h2 style={{ fontSize: isMobile ? '1.8rem' : '2rem', textAlign: 'center', marginBottom: '2rem', color: shinyBronze }}>Features that Empower You</h2>
+                    <div style={featureGridStyles}>
+                        {[{ title: 'Custom Text', icon: '✍️', description: 'Add your message with various fonts and sizes' },
+                        { title: 'Color Control', icon: '🎨', description: 'Choose perfect background and text colors' },
+                        { title: 'Image Overlay', icon: '🖼️', description: 'Upload and overlay your own images' },
+                        { title: 'One-Click Share', icon: '🚀', description: 'Share directly to social media platforms' },
+                        ].map((feature, index) => (
+                            <div key={index} style={featureItemStyles}>
+                                <div style={{ fontSize: '3rem', marginBottom: '1rem' }} aria-hidden="true">{feature.icon}</div>
+                                <h3 style={{ fontSize: '1.2rem', marginBottom: '0.5rem', color: shinyBronze }}>{feature.title}</h3>
+                                <p style={{ color: '#e0e0e0' }}>{feature.description}</p>
+                            </div>
+                        ))} 
+                    </div>
+                </section>
+
+                <section style={pricingSectionStyles}>
+                    <h2 style={{ fontSize: isMobile ? '1.8rem' : '2rem', textAlign: 'center', marginBottom: '2rem', color: shinyBronze }}>Affordable Pricing Plans</h2>
+                    <div style={pricingGridStyles}>
+                        {[{ name: 'Starter', price: '$5/month', features: ['5 image generations', 'Basic customization'] },
+                        { name: 'Pro', price: '$15/month', features: ['Unlimited generations', 'Advanced customization', 'Priority support'] }
+                        ].map((plan, index) => (
+                            <div key={index} style={pricingItemStyles}>
+                                <h3 style={{ fontSize: '1.5rem', marginBottom: '1rem', color: shinyBronze }}>{plan.name}</h3>
+                                <p style={{ fontSize: '1.2rem', color: '#e0e0e0' }}>{plan.price}</p>
+                                <ul style={{ listStyle: 'none', padding: 0 }}>
+                                    {plan.features.map((feature, i) => (
+                                        <li key={i} style={{ color: '#e0e0e0', marginBottom: '0.5rem' }}>{feature}</li>
+                                    ))}
+                                </ul>
+                                <button
+                                    style={buttonStyles}
+                                    onMouseOver={(e) => e.target.style.backgroundColor = shinyBronzeHover}
+                                    onMouseOut={(e) => e.target.style.backgroundColor = shinyBronze}
+                                >
+                                    Choose {plan.name}
+                                </button>
+                            </div>
+                        ))} 
+                    </div>
+                </section>
+            </main>
         </div>
-        <div className="input-container">
-          <div className="input-section">
-            <h2>Text Settings</h2>
-            <textarea
-              value={formState.text}
-              onChange={(e) => handleInputChange('text', e.target.value)}
-              placeholder="Enter text here..."
-            />
-            <div className="input-group">
-              <label>
-                Font Size:
-                <input
-                  type="number"
-                  value={formState.fontSize}
-                  onChange={(e) => handleInputChange('fontSize', Number(e.target.value))}
-                  min="10"
-                  max="100"
-                />
-              </label>
-              <label>
-                Font Family:
-                <select
-                  value={formState.fontFamily}
-                  onChange={(e) => handleInputChange('fontFamily', e.target.value)}
-                >
-                  <option value="Arial">Arial</option>
-                  <option value="Courier New">Courier New</option>
-                  <option value="Georgia">Georgia</option>
-                  <option value="Times New Roman">Times New Roman</option>
-                  <option value="Verdana">Verdana</option>
-                </select>
-              </label>
-            </div>
-            <div className="input-group">
-              <label>
-                Text X:
-                <input
-                  type="range"
-                  min="0"
-                  max="100"
-                  value={formState.textX}
-                  onChange={(e) => handleInputChange('textX', Number(e.target.value))}
-                />
-              </label>
-              <label>
-                Text Y:
-                <input
-                  type="range"
-                  min="0"
-                  max="100"
-                  value={formState.textY}
-                  onChange={(e) => handleInputChange('textY', Number(e.target.value))}
-                />
-              </label>
-            </div>
-            <div className="input-group">
-              <label>
-                Text Align:
-                <select
-                  value={formState.textAlign}
-                  onChange={(e) => handleInputChange('textAlign', e.target.value)}
-                >
-                  <option value="left">Left</option>
-                  <option value="center">Center</option>
-                  <option value="right">Right</option>
-                </select>
-              </label>
-            </div>
-          </div>
-          <div className="input-section">
-            <h2>Color Settings</h2>
-            <div className="input-group">
-              <label>
-                Background:
-                <input
-                  type="color"
-                  value={formState.backgroundColor}
-                  onChange={(e) => handleInputChange('backgroundColor', e.target.value)}
-                />
-              </label>
-              <label>
-                Font Color:
-                <input
-                  type="color"
-                  value={formState.fontColor}
-                  onChange={(e) => handleInputChange('fontColor', e.target.value)}
-                />
-              </label>
-            </div>
-            <div className="input-group">
-              <label>
-                Gradient Start:
-                <input
-                  type="color"
-                  value={formState.gradientStart}
-                  onChange={(e) => handleInputChange('gradientStart', e.target.value)}
-                />
-              </label>
-              <label>
-                Gradient End:
-                <input
-                  type="color"
-                  value={formState.gradientEnd}
-                  onChange={(e) => handleInputChange('gradientEnd', e.target.value)}
-                />
-              </label>
-            </div>
-          </div>
-          <div className="input-section">
-            <h2>Overlay Images</h2>
-            <input
-              type="file"
-              accept="image/*"
-              onChange={handleImageUpload}
-            />
-            <button onClick={deleteAllOverlayImages}>Delete All Images</button>
-            {overlayImages.map((img, index) => (
-              <div key={index} className="overlay-image-controls">
-                <h3>Image {index + 1}</h3>
-                <div className="input-group">
-                  <label>
-                    X:
-                    <input
-                      type="number"
-                      value={img.x}
-                      onChange={(e) => updateOverlayImage(index, 'x', Number(e.target.value))}
-                    />
-                  </label>
-                  <label>
-                    Y:
-                    <input
-                      type="number"
-                      value={img.y}
-                      onChange={(e) => updateOverlayImage(index, 'y', Number(e.target.value))}
-                    />
-                  </label>
-                </div>
-                <div className="input-group">
-                  <label>
-                    Width:
-                    <input
-                      type="number"
-                      value={img.width}
-                      onChange={(e) => updateOverlayImage(index, 'width', Number(e.target.value))}
-                    />
-                  </label>
-                  <label>
-                    Height:
-                    <input
-                      type="number"
-                      value={img.height}
-                      onChange={(e) => updateOverlayImage(index, 'height', Number(e.target.value))}
-                    />
-                  </label>
-                </div>
-                <div className="input-group">
-                  <label>
-                    Shape:
-                    <select
-                      value={img.shape}
-                      onChange={(e) => updateOverlayImage(index, 'shape', e.target.value)}
-                    >
-                      <option value="rectangle">Rectangle</option>
-                      <option value="circle">Circle</option>
-                    </select>
-                  </label>
-                </div>
-                <button onClick={() => deleteOverlayImage(index)}>Delete Image</button>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-      <style jsx>{`
-        .image-generator {
-          font-family: Arial, sans-serif;
-          background-color: #121212;
-          color: #FFFFFF;
-          min-height: 100vh;
-          padding: 20px;
-        }
-
-        h1, h2, h3 {
-          margin-bottom: 10px;
-        }
-
-        .content-container {
-          display: flex;
-          justify-content: space-between;
-          gap: 20px;
-        }
-
-        .image-container, .input-container {
-          background-color: #1E1E1E;
-          padding: 20px;
-          border-radius: 10px;
-          flex: 1;
-        }
-
-        .image-container {
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-        }
-
-        .preview-canvas, .output-image {
-          width: 100%;
-          max-width: 500px;
-          height: auto;
-          margin-bottom: 10px;
-          background-color: #2C2C2C;
-          border-radius: 5px;
-        }
-
-        .input-container {
-          max-height: 80vh;
-          overflow-y: auto;
-        }
-
-        .input-section {
-          margin-bottom: 20px;
-        }
-
-        .input-group {
-          display: flex;
-          flex-wrap: wrap;
-          gap: 10px;
-          margin-bottom: 10px;
-        }
-
-        textarea, input, select {
-          width: 100%;
-          padding: 5px;
-          margin-bottom: 10px;
-          background-color: #2C2C2C;
-          color: #FFFFFF;
-          border: 1px solid #444444;
-          border-radius: 5px;
-        }
-
-        textarea {
-          height: 100px;
-          resize: vertical;
-        }
-
-        button {
-          padding: 10px;
-          background-color: #4CAF50;
-          color: #FFFFFF;
-          border: none;
-          border-radius: 5px;
-          cursor: pointer;
-          transition: background-color 0.3s;
-          margin-right: 10px;
-          margin-bottom: 10px;
-        }
-
-        button:hover {
-          background-color: #45a049;
-        }
-
-        .generate-button {
-          background-color: #D4AF37;
-          color: #000000;
-          font-weight: bold;
-        }
-
-        .generate-button:hover {
-          background-color: #FFD700;
-        }
-
-        .generate-button.disabled {
-          background-color: #666666;
-          cursor: not-allowed;
-        }
-
-        .overlay-image-controls {
-          border: 1px solid #444444;
-          padding: 10px;
-          margin-bottom: 10px;
-          border-radius: 5px;
-        }
-
-        @media (max-width: 768px) {
-          .content-container {
-            flex-direction: column;
-          }
-        }
-      `}</style>
-    </div>
-  );
+    );
 }
